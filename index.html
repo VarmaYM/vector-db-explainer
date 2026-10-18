@@ -1,0 +1,795 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="An offline interactive field guide to vector databases, from exact queries to similarity search.">
+  <title>From rows to neighborhoods — a vector database field guide</title>
+  <style>
+    :root {
+      --ink: #eff7ff;
+      --muted: #94a9bf;
+      --subtle: #6d849b;
+      --night: #07111d;
+      --panel: #0c1b2b;
+      --panel-2: #10243a;
+      --line: rgba(176, 207, 232, .16);
+      --line-strong: rgba(176, 207, 232, .28);
+      --cyan: #61e7df;
+      --cyan-dark: #1a827f;
+      --lime: #c3ed83;
+      --orange: #ffb36b;
+      --rose: #ff8f9c;
+      --blue: #81a9ff;
+      --shadow: 0 22px 80px rgba(0, 0, 0, .28);
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 8% 0%, rgba(48, 112, 137, .18), transparent 28rem),
+        radial-gradient(circle at 90% 20%, rgba(84, 61, 126, .14), transparent 32rem),
+        var(--night);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+
+    body::before {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      content: "";
+      opacity: .22;
+      background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: linear-gradient(to bottom, black, transparent 80%);
+    }
+
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+    a { color: inherit; }
+
+    .app { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 30px 0 70px; }
+
+    .eyebrow,
+    .scene-index,
+    .scene-kicker,
+    .mini-label,
+    .checkpoint-label,
+    .source-group-title {
+      color: var(--cyan);
+      font-size: .68rem;
+      font-weight: 800;
+      letter-spacing: .16em;
+      text-transform: uppercase;
+    }
+
+    .hero { padding: 12px 0 25px; }
+    .hero-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(270px, .75fr); gap: 50px; align-items: center; margin-top: 16px; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { max-width: 720px; margin-bottom: 17px; font-size: clamp(2.6rem, 7vw, 5.8rem); line-height: .95; letter-spacing: -.075em; font-weight: 760; }
+    h1 em { color: var(--cyan); font-style: normal; }
+    .lede { max-width: 690px; margin-bottom: 22px; color: var(--muted); font-size: 1.06rem; }
+    .hero-note { display: inline-flex; flex-wrap: wrap; gap: 8px 12px; align-items: baseline; max-width: 680px; padding: 12px 15px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: rgba(12, 27, 43, .74); font-size: .88rem; }
+    .hero-note span { color: var(--lime); font-weight: 800; letter-spacing: .07em; text-transform: uppercase; font-size: .67rem; }
+
+    .hero-orbit { position: relative; min-height: 260px; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: linear-gradient(140deg, rgba(13, 37, 56, .9), rgba(11, 24, 41, .65)); box-shadow: var(--shadow); }
+    .hero-orbit::before { position: absolute; inset: 19% 14%; border: 1px solid rgba(97,231,223,.32); border-radius: 50%; content: ""; transform: rotate(-22deg) skewX(-10deg); }
+    .hero-orbit::after { position: absolute; inset: 29% 25%; border: 1px dashed rgba(195,237,131,.35); border-radius: 50%; content: ""; transform: rotate(31deg) skewX(15deg); }
+    .orbit-dot { position: absolute; width: 9px; height: 9px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 0 7px rgba(97,231,223,.08), 0 0 25px rgba(97,231,223,.75); animation: float 4s ease-in-out infinite; }
+    .orbit-dot:nth-child(1) { top: 24%; left: 29%; }
+    .orbit-dot:nth-child(2) { top: 69%; left: 29%; background: var(--lime); animation-delay: -1.2s; }
+    .orbit-dot:nth-child(3) { top: 40%; right: 24%; background: var(--orange); animation-delay: -2.3s; }
+    .orbit-dot:nth-child(4) { bottom: 18%; right: 34%; background: var(--blue); animation-delay: -.4s; }
+    .orbit-caption { position: absolute; left: 20px; bottom: 17px; color: var(--muted); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
+    .orbit-caption strong { display: block; margin-top: 3px; color: var(--ink); font-size: .94rem; letter-spacing: 0; text-transform: none; }
+
+    .progress-wrap { margin-top: 38px; }
+    .progress-meta { display: flex; justify-content: space-between; gap: 16px; color: var(--muted); font-size: .75rem; text-transform: uppercase; letter-spacing: .12em; }
+    .progress-meta strong { color: var(--ink); font-weight: 700; }
+    .progress-track { height: 4px; margin-top: 11px; overflow: hidden; border-radius: 10px; background: rgba(255,255,255,.1); }
+    #progressFill { width: 10%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cyan), var(--lime)); transition: width .35s ease; }
+    .scene-dots { display: grid; grid-template-columns: repeat(10, 1fr); gap: 7px; margin-top: 13px; }
+    .scene-dot { height: 4px; border: 0; padding: 0; border-radius: 4px; background: rgba(255,255,255,.14); transition: background .25s ease, transform .25s ease; }
+    .scene-dot.current { background: var(--cyan); transform: scaleY(1.8); }
+    .scene-dot.visited { background: rgba(97,231,223,.45); }
+
+    .control-bar { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin: 0 0 22px; padding: 10px; border: 1px solid var(--line); border-radius: 13px; background: rgba(12, 27, 43, .72); position: sticky; top: 12px; z-index: 10; backdrop-filter: blur(14px); }
+    .control-group { display: flex; flex-wrap: wrap; gap: 8px; }
+    .control-button { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 7px 12px; border: 1px solid var(--line-strong); border-radius: 8px; color: var(--ink); background: #11283e; font-size: .78rem; font-weight: 750; transition: border-color .2s ease, background .2s ease, transform .2s ease; }
+    .control-button:hover:not(:disabled) { border-color: var(--cyan); background: #17354b; transform: translateY(-1px); }
+    .control-button:disabled { cursor: not-allowed; opacity: .4; }
+    .control-button.primary { border-color: rgba(97,231,223,.45); color: #071a22; background: var(--cyan); }
+    .control-button.primary:hover:not(:disabled) { background: #85f5ed; }
+    .control-button .symbol { font-size: 1rem; line-height: 1; }
+    .control-status { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: .74rem; white-space: nowrap; }
+    .status-light { width: 7px; height: 7px; border-radius: 50%; background: var(--subtle); }
+    .status-light.live { background: var(--lime); box-shadow: 0 0 13px rgba(195,237,131,.7); animation: blink 1.4s ease-in-out infinite; }
+
+    .scene { display: none; overflow: hidden; border: 1px solid var(--line); border-radius: 18px; background: rgba(10, 23, 38, .86); box-shadow: var(--shadow); }
+    .scene.active { display: block; animation: sceneIn .48s ease both; }
+    .scene-top { display: flex; justify-content: space-between; gap: 20px; align-items: center; padding: 22px 25px 0; }
+    .scene-kicker { color: var(--subtle); }
+    .scene-kicker b { color: var(--cyan); }
+    .scene-type { padding: 5px 9px; border: 1px solid rgba(195,237,131,.25); border-radius: 5px; color: var(--lime); background: rgba(195,237,131,.06); font-size: .66rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .scene-heading { padding: 12px 25px 0; }
+    .scene-heading h2 { max-width: 760px; margin-bottom: 9px; font-size: clamp(2rem, 4.8vw, 4rem); line-height: .98; letter-spacing: -.06em; }
+    .scene-heading h2 span { color: var(--cyan); }
+    .scene-intro { max-width: 800px; margin-bottom: 0; color: var(--muted); font-size: 1rem; }
+    .concept-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 17px; }
+    .concept { padding: 5px 9px; border: 1px solid var(--line); border-radius: 4px; color: #b8cbe0; background: rgba(255,255,255,.035); font-size: .68rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .scene-body { display: grid; grid-template-columns: minmax(0, 1.17fr) minmax(290px, .83fr); gap: 18px; padding: 22px 25px 26px; }
+    .diagram-panel { min-height: 415px; overflow: hidden; padding: 20px; border: 1px solid var(--line); border-radius: 13px; background: linear-gradient(155deg, rgba(19, 42, 62, .86), rgba(8, 19, 32, .8)); }
+    .diagram-title { display: flex; justify-content: space-between; gap: 15px; align-items: center; margin-bottom: 17px; color: var(--muted); font-size: .71rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+    .diagram-title span:last-child { color: var(--subtle); font-weight: 600; letter-spacing: 0; text-transform: none; }
+    .teaching-panel { display: flex; flex-direction: column; gap: 14px; }
+    .explain-card, .takeaway-card, .checkpoint { padding: 17px; border: 1px solid var(--line); border-radius: 11px; background: rgba(13, 31, 49, .74); }
+    .explain-card h3, .takeaway-card h3 { margin-bottom: 7px; color: var(--cyan); font-size: .76rem; letter-spacing: .12em; text-transform: uppercase; }
+    .explain-card p, .takeaway-card p { margin-bottom: 0; color: var(--muted); font-size: .88rem; }
+    .takeaway-card { border-color: rgba(195,237,131,.23); background: rgba(195,237,131,.045); }
+    .takeaway-card h3 { color: var(--lime); }
+    .checkpoint { margin-top: auto; border-color: rgba(255,179,107,.35); background: linear-gradient(145deg, rgba(255,179,107,.09), rgba(13,31,49,.76)); }
+    .checkpoint-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .checkpoint-label { color: var(--orange); }
+    .checkpoint-count { color: var(--subtle); font-size: .68rem; font-weight: 700; letter-spacing: .1em; }
+    .checkpoint-question { margin-bottom: 13px; color: var(--ink); font-size: .92rem; font-weight: 650; }
+    .reveal-button { padding: 6px 9px; border: 1px solid rgba(255,179,107,.45); border-radius: 6px; color: var(--orange); background: transparent; font-size: .74rem; font-weight: 800; }
+    .reveal-button:hover { background: rgba(255,179,107,.1); }
+    .answer { margin-top: 13px; padding-top: 12px; border-top: 1px solid rgba(255,179,107,.2); color: #ffd6a5; font-size: .83rem; animation: answerIn .25s ease both; }
+    .answer strong { color: var(--ink); }
+    .answer[hidden] { display: none; }
+    .scene-sources { padding: 0 25px 22px; color: var(--subtle); font-size: .72rem; }
+    .scene-sources a { margin-left: 5px; color: var(--cyan); text-decoration: none; font-weight: 800; }
+    .scene-sources a:hover { text-decoration: underline; }
+
+    /* Scene 1 — familiar databases */
+    .model-stack { display: grid; gap: 11px; }
+    .model-card { display: grid; grid-template-columns: 45px minmax(0, 1fr) auto; gap: 13px; align-items: center; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.035); animation: riseIn .6s ease both; }
+    .model-card:nth-child(2) { animation-delay: .1s; }
+    .model-card:nth-child(3) { animation-delay: .2s; }
+    .model-icon { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 9px; color: var(--cyan); background: rgba(97,231,223,.1); font-size: .64rem; font-weight: 900; letter-spacing: .05em; }
+    .model-card:nth-child(2) .model-icon { color: var(--orange); background: rgba(255,179,107,.1); }
+    .model-card:nth-child(3) .model-icon { color: var(--blue); background: rgba(129,169,255,.1); }
+    .model-card h3 { margin: 0 0 3px; font-size: .9rem; }
+    .model-card p { margin: 0; color: var(--muted); font-size: .72rem; }
+    .model-query { padding: 5px 7px; border: 1px solid var(--line-strong); border-radius: 5px; color: var(--lime); background: rgba(195,237,131,.06); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .66rem; white-space: nowrap; }
+    .question-bubble { display: flex; align-items: center; gap: 12px; margin-top: 17px; padding: 13px; border: 1px dashed rgba(97,231,223,.35); border-radius: 9px; color: var(--muted); font-size: .78rem; }
+    .question-bubble b { color: var(--cyan); font-size: 1.05rem; }
+
+    /* Scene 2 — exact vs similarity */
+    .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; height: calc(100% - 35px); }
+    .compare-side { position: relative; min-height: 315px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; }
+    .compare-side.exact { background: linear-gradient(145deg, rgba(129,169,255,.07), transparent); }
+    .compare-side.similar { background: linear-gradient(145deg, rgba(97,231,223,.08), transparent); }
+    .compare-side > h3 { margin-bottom: 3px; color: var(--ink); font-size: .79rem; }
+    .compare-side > p { margin-bottom: 13px; color: var(--subtle); font-size: .68rem; }
+    .record-row { display: flex; justify-content: space-between; gap: 5px; align-items: center; margin: 8px 0; padding: 7px; border-radius: 5px; background: rgba(255,255,255,.045); color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .65rem; }
+    .record-row.match { border: 1px solid rgba(195,237,131,.45); color: var(--lime); background: rgba(195,237,131,.08); }
+    .record-row .check { color: var(--lime); font-weight: 800; }
+    .scatter { position: relative; height: 260px; border: 1px dashed rgba(97,231,223,.18); border-radius: 7px; background-image: linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px); background-size: 30px 30px; }
+    .point { position: absolute; width: 9px; height: 9px; border-radius: 50%; background: var(--blue); animation: pointPulse 2.7s ease-in-out infinite; }
+    .point.near { background: var(--lime); box-shadow: 0 0 0 8px rgba(195,237,131,.1), 0 0 18px rgba(195,237,131,.55); }
+    .point.query { width: 12px; height: 12px; background: var(--orange); box-shadow: 0 0 0 7px rgba(255,179,107,.12); animation-delay: -.8s; }
+    .point-label { position: absolute; transform: translate(13px, -6px); color: var(--muted); font-size: .6rem; white-space: nowrap; }
+    .similarity-ring { position: absolute; top: 37%; left: 48%; width: 130px; height: 130px; transform: translate(-50%, -50%); border: 1px solid rgba(195,237,131,.25); border-radius: 50%; animation: ringPulse 2.7s ease-in-out infinite; }
+
+    /* Scene 3 — inverted index */
+    .index-layout { display: grid; grid-template-columns: .77fr 1.23fr; gap: 14px; align-items: stretch; }
+    .token-query { padding: 15px; border: 1px solid rgba(255,179,107,.32); border-radius: 9px; background: rgba(255,179,107,.07); }
+    .token-query strong { display: block; margin-bottom: 8px; color: var(--orange); font-size: .7rem; letter-spacing: .1em; text-transform: uppercase; }
+    .token-query code { color: var(--ink); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .8rem; }
+    .token { display: inline-block; margin: 5px 3px 0 0; padding: 3px 6px; border-radius: 4px; color: var(--night); background: var(--orange); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .68rem; font-weight: 800; }
+    .postings { display: grid; gap: 9px; padding: 3px 0; }
+    .posting { display: grid; grid-template-columns: 80px 1fr; gap: 11px; align-items: center; }
+    .term { padding: 9px 8px; border: 1px solid rgba(129,169,255,.28); border-radius: 5px; color: var(--blue); background: rgba(129,169,255,.08); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .67rem; font-weight: 800; text-align: center; }
+    .doc-pills { display: flex; flex-wrap: wrap; gap: 5px; }
+    .doc-pill { padding: 5px 7px; border: 1px solid var(--line); border-radius: 4px; color: var(--muted); background: rgba(255,255,255,.04); font-size: .64rem; }
+    .doc-pill.hit { border-color: rgba(195,237,131,.38); color: var(--lime); background: rgba(195,237,131,.08); }
+    .index-arrow { position: absolute; top: 50%; left: 29%; color: var(--cyan); font-size: 1.5rem; transform: translateY(-50%); }
+    .index-note { margin-top: 18px; padding: 10px; border-left: 2px solid var(--blue); color: var(--muted); font-size: .72rem; }
+
+    /* Scene 4 — embeddings */
+    .embedding-flow { display: grid; grid-template-columns: 1fr 45px 1fr; gap: 11px; align-items: center; min-height: 330px; }
+    .text-inputs { display: grid; gap: 10px; }
+    .text-card { padding: 12px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: rgba(255,255,255,.035); font-size: .75rem; animation: slideRight .7s ease both; }
+    .text-card:nth-child(2) { animation-delay: .15s; }
+    .text-card:nth-child(3) { animation-delay: .3s; }
+    .text-card b { display: block; margin-bottom: 3px; color: var(--ink); font-size: .69rem; }
+    .flow-arrow { color: var(--cyan); font-size: 1.8rem; text-align: center; animation: arrowBlink 1.8s ease-in-out infinite; }
+    .vector-output { display: grid; gap: 10px; }
+    .vector-card { padding: 10px; border: 1px solid rgba(97,231,223,.25); border-radius: 8px; background: rgba(97,231,223,.06); }
+    .vector-card strong { display: flex; justify-content: space-between; margin-bottom: 7px; color: var(--cyan); font-size: .65rem; letter-spacing: .06em; }
+    .vector-bar { display: flex; gap: 3px; height: 17px; }
+    .vector-bar i { flex: 1; border-radius: 2px; background: var(--cyan); animation: vectorGrow .8s ease both; transform-origin: left; }
+    .vector-bar i:nth-child(2) { background: var(--blue); animation-delay: .1s; }
+    .vector-bar i:nth-child(3) { background: var(--orange); animation-delay: .2s; }
+    .vector-bar i:nth-child(4) { background: var(--lime); animation-delay: .3s; }
+    .vector-bar i:nth-child(5) { background: var(--rose); animation-delay: .4s; }
+    .vector-card code { display: block; margin-top: 6px; color: var(--subtle); font-size: .6rem; }
+    .vector-foot { grid-column: 1 / -1; padding: 9px 11px; border: 1px dashed rgba(255,179,107,.3); border-radius: 6px; color: var(--orange); font-size: .7rem; }
+
+    /* Scene 5 — exact nearest neighbors */
+    .exact-search { display: grid; grid-template-columns: 1fr .75fr; gap: 16px; min-height: 330px; align-items: center; }
+    .search-space { position: relative; height: 330px; overflow: hidden; border: 1px dashed rgba(129,169,255,.22); border-radius: 9px; background-image: linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px); background-size: 34px 34px; }
+    .search-space::after { position: absolute; inset: 0; background: radial-gradient(circle at 48% 51%, rgba(97,231,223,.12), transparent 33%); content: ""; }
+    .search-line { position: absolute; height: 1px; transform-origin: left center; background: rgba(129,169,255,.27); animation: lineIn .7s ease both; }
+    .search-node { position: absolute; z-index: 1; width: 13px; height: 13px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 5px rgba(129,169,255,.08); }
+    .search-node.neighbor { background: var(--lime); box-shadow: 0 0 0 7px rgba(195,237,131,.12), 0 0 15px rgba(195,237,131,.5); }
+    .search-node.query { width: 16px; height: 16px; background: var(--orange); box-shadow: 0 0 0 8px rgba(255,179,107,.13), 0 0 18px rgba(255,179,107,.5); }
+    .search-label { position: absolute; z-index: 2; transform: translate(17px, -7px); color: var(--muted); font-size: .63rem; white-space: nowrap; }
+    .distance-list { display: grid; gap: 7px; }
+    .distance-row { display: grid; grid-template-columns: 35px 1fr 37px; gap: 7px; align-items: center; color: var(--muted); font-size: .67rem; }
+    .distance-row b { color: var(--lime); font-size: .65rem; text-align: right; }
+    .distance-meter { height: 7px; overflow: hidden; border-radius: 10px; background: rgba(255,255,255,.09); }
+    .distance-meter i { display: block; width: var(--distance); height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--lime), var(--cyan)); animation: meterIn .9s ease both; transform-origin: left; }
+    .exact-tag { margin-bottom: 17px; padding: 7px 9px; border-radius: 5px; color: var(--lime); background: rgba(195,237,131,.08); font-size: .69rem; font-weight: 800; text-align: center; text-transform: uppercase; letter-spacing: .1em; }
+
+    /* Scene 6 — ANN */
+    .ann-layout { display: grid; grid-template-columns: 1fr .83fr; gap: 16px; align-items: center; min-height: 330px; }
+    .ann-graph { position: relative; height: 325px; overflow: hidden; border: 1px solid rgba(97,231,223,.18); border-radius: 9px; background: rgba(97,231,223,.035); }
+    .ann-graph::before { position: absolute; inset: 0; opacity: .45; background-image: linear-gradient(30deg, transparent 49%, rgba(97,231,223,.15) 50%, transparent 51%), linear-gradient(150deg, transparent 49%, rgba(97,231,223,.12) 50%, transparent 51%); background-size: 74px 64px; content: ""; }
+    .ann-node { position: absolute; z-index: 1; width: 12px; height: 12px; border: 2px solid var(--panel); border-radius: 50%; background: var(--blue); transition: opacity .4s ease, background .3s ease, transform .3s ease; }
+    .ann-node.visited { background: var(--lime); box-shadow: 0 0 0 5px rgba(195,237,131,.11); animation: nodePop .55s ease both; }
+    .ann-node.query { width: 17px; height: 17px; border: 3px solid var(--panel); background: var(--orange); box-shadow: 0 0 0 8px rgba(255,179,107,.12); }
+    .ann-node.faint { opacity: .28; }
+    .ann-edge { position: absolute; z-index: 0; height: 1px; transform-origin: left center; background: rgba(129,169,255,.28); }
+    .ann-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; color: var(--muted); font-size: .67rem; }
+    .legend-item { display: inline-flex; gap: 6px; align-items: center; }
+    .legend-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); }
+    .legend-dot.visited { background: var(--lime); }
+    .legend-dot.query { background: var(--orange); }
+    .budget-card { padding: 17px; border: 1px solid rgba(255,179,107,.28); border-radius: 10px; background: rgba(255,179,107,.06); }
+    .budget-card h3 { margin-bottom: 5px; color: var(--orange); font-size: .76rem; letter-spacing: .12em; text-transform: uppercase; }
+    .budget-card p { margin-bottom: 16px; color: var(--muted); font-size: .79rem; }
+    .range-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 7px; color: var(--ink); font-size: .73rem; font-weight: 750; }
+    input[type="range"] { width: 100%; accent-color: var(--orange); }
+    .ann-readout { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 16px; }
+    .readout { padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: rgba(0,0,0,.12); }
+    .readout span { display: block; color: var(--subtle); font-size: .61rem; letter-spacing: .08em; text-transform: uppercase; }
+    .readout strong { color: var(--ink); font-size: 1.1rem; }
+    .readout strong.good { color: var(--lime); }
+
+    /* Scene 7 — vector DB boundary */
+    .boundary-flow { display: grid; grid-template-columns: 1fr 25px 1fr 25px 1fr; gap: 8px; align-items: center; min-height: 335px; }
+    .flow-column { display: grid; gap: 9px; align-content: center; min-height: 180px; }
+    .flow-box { padding: 12px 10px; border: 1px solid var(--line-strong); border-radius: 8px; text-align: center; }
+    .flow-box.canonical { border-color: rgba(129,169,255,.4); background: rgba(129,169,255,.08); }
+    .flow-box.derived { border-color: rgba(97,231,223,.4); background: rgba(97,231,223,.07); }
+    .flow-box.policy { border-color: rgba(195,237,131,.4); background: rgba(195,237,131,.07); }
+    .flow-box strong { display: block; margin-bottom: 3px; font-size: .76rem; }
+    .flow-box small { color: var(--muted); font-size: .62rem; }
+    .flow-box.canonical strong { color: var(--blue); }
+    .flow-box.derived strong { color: var(--cyan); }
+    .flow-box.policy strong { color: var(--lime); }
+    .flow-arrow-large { color: var(--cyan); font-size: 1.4rem; text-align: center; }
+    .boundary-line { position: relative; grid-column: 1 / -1; margin: 11px 0; padding: 8px; border-top: 1px dashed rgba(255,179,107,.45); color: var(--orange); font-size: .63rem; letter-spacing: .1em; text-align: center; text-transform: uppercase; }
+    .responsibility-chips { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; }
+    .responsibility-chips span { padding: 4px 6px; border: 1px solid rgba(97,231,223,.2); border-radius: 4px; color: var(--cyan); background: rgba(97,231,223,.06); font-size: .6rem; }
+
+    /* Scene 8 — hybrid */
+    .hybrid-flow { display: grid; grid-template-columns: .82fr 25px 1.08fr 25px .9fr; gap: 8px; align-items: center; min-height: 330px; }
+    .hybrid-input { display: grid; gap: 8px; }
+    .query-chip { padding: 9px; border: 1px solid var(--line); border-radius: 7px; color: var(--muted); background: rgba(255,255,255,.04); font-size: .68rem; }
+    .query-chip b { display: block; margin-bottom: 2px; font-size: .61rem; letter-spacing: .08em; text-transform: uppercase; }
+    .query-chip.exact b { color: var(--orange); }
+    .query-chip.lexical b { color: var(--blue); }
+    .query-chip.dense b { color: var(--cyan); }
+    .hybrid-signals { display: grid; gap: 12px; }
+    .signal-box { padding: 13px 10px; border-radius: 8px; text-align: center; }
+    .signal-box.lexical { border: 1px solid rgba(129,169,255,.35); background: rgba(129,169,255,.08); }
+    .signal-box.dense { border: 1px solid rgba(97,231,223,.35); background: rgba(97,231,223,.08); }
+    .signal-box strong { display: block; margin-bottom: 3px; font-size: .75rem; }
+    .signal-box small { color: var(--muted); font-size: .62rem; }
+    .signal-box.lexical strong { color: var(--blue); }
+    .signal-box.dense strong { color: var(--cyan); }
+    .merge-box { display: grid; gap: 9px; }
+    .merge-box h3 { margin-bottom: 0; color: var(--lime); font-size: .72rem; letter-spacing: .1em; text-align: center; text-transform: uppercase; }
+    .result-row { display: flex; justify-content: space-between; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); background: rgba(255,255,255,.04); font-size: .65rem; }
+    .result-row b { color: var(--lime); }
+    .hybrid-footer { grid-column: 1 / -1; padding: 9px; border: 1px dashed rgba(195,237,131,.3); color: var(--lime); font-size: .69rem; text-align: center; }
+
+    /* Scene 9 — use cases */
+    .use-case-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; min-height: 330px; }
+    .use-case { display: flex; flex-direction: column; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.035); animation: riseIn .7s ease both; }
+    .use-case:nth-child(2) { animation-delay: .12s; }
+    .use-case:nth-child(3) { animation-delay: .24s; }
+    .use-case .case-number { color: var(--subtle); font-size: .65rem; font-weight: 850; letter-spacing: .1em; }
+    .use-case h3 { margin: 10px 0 6px; color: var(--ink); font-size: .93rem; }
+    .use-case p { color: var(--muted); font-size: .72rem; }
+    .case-flow { display: grid; gap: 4px; margin-top: auto; }
+    .case-step { padding: 6px; border-radius: 4px; color: var(--cyan); background: rgba(97,231,223,.08); font-size: .63rem; text-align: center; }
+    .case-step:last-child { color: var(--lime); background: rgba(195,237,131,.08); }
+    .fit-banner { margin-top: 13px; padding: 10px; border: 1px solid rgba(97,231,223,.25); border-radius: 7px; color: var(--cyan); background: rgba(97,231,223,.06); font-size: .7rem; text-align: center; }
+
+    /* Scene 10 — anti-patterns */
+    .antipatterns { display: grid; gap: 8px; min-height: 330px; }
+    .anti-row { display: grid; grid-template-columns: 24px 1fr 24px 1fr; gap: 9px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: rgba(255,255,255,.03); }
+    .anti-symbol { display: grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; color: var(--rose); background: rgba(255,143,156,.12); font-weight: 900; }
+    .anti-symbol.good { color: var(--lime); background: rgba(195,237,131,.12); }
+    .anti-row p { margin: 0; color: var(--muted); font-size: .68rem; }
+    .anti-row p strong { display: block; margin-bottom: 2px; color: var(--ink); font-size: .71rem; }
+    .final-architecture { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: 13px; }
+    .architecture-step { position: relative; padding: 10px 6px; border: 1px solid rgba(97,231,223,.24); border-radius: 6px; color: var(--cyan); background: rgba(97,231,223,.05); font-size: .63rem; text-align: center; }
+    .architecture-step:not(:last-child)::after { position: absolute; top: 50%; right: -9px; z-index: 2; color: var(--cyan); content: "→"; transform: translateY(-50%); }
+    .end-card { margin-top: 13px; padding: 12px; border-radius: 7px; color: var(--night); background: linear-gradient(100deg, var(--cyan), var(--lime)); font-size: .78rem; font-weight: 800; }
+
+    .lower-section { margin-top: 34px; }
+    .reflection { display: grid; grid-template-columns: .9fr 1.1fr; gap: 20px; padding: 25px; border: 1px solid rgba(195,237,131,.25); border-radius: 16px; background: linear-gradient(130deg, rgba(195,237,131,.08), rgba(12,27,43,.76)); }
+    .reflection h2 { margin-bottom: 8px; font-size: clamp(1.7rem, 4vw, 2.8rem); line-height: 1; letter-spacing: -.05em; }
+    .reflection h2 span { color: var(--lime); }
+    .reflection p { margin-bottom: 0; color: var(--muted); font-size: .87rem; }
+    .decision-list { display: grid; gap: 8px; }
+    .decision-item { display: grid; grid-template-columns: 24px 1fr; gap: 10px; align-items: start; color: var(--muted); font-size: .78rem; }
+    .decision-item b { color: var(--ink); }
+    .decision-item > span { display: grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; color: var(--night); background: var(--lime); font-size: .67rem; font-weight: 900; }
+
+    .sources-panel { margin-top: 18px; padding: 25px; border: 1px solid var(--line); border-radius: 16px; background: rgba(10, 23, 38, .82); }
+    .sources-header { display: flex; justify-content: space-between; gap: 20px; align-items: end; margin-bottom: 20px; }
+    .sources-header h2 { margin-bottom: 7px; font-size: clamp(1.7rem, 4vw, 2.8rem); line-height: 1; letter-spacing: -.05em; }
+    .sources-header p { max-width: 590px; margin-bottom: 0; color: var(--muted); font-size: .81rem; }
+    .source-rule { max-width: 255px; padding: 10px 12px; border-left: 2px solid var(--orange); color: var(--orange); font-size: .69rem; }
+    .simplifications { display: grid; grid-template-columns: 1.2fr 1fr; gap: 12px; margin-bottom: 24px; }
+    .simplification-card { padding: 14px; border: 1px solid rgba(255,179,107,.26); border-radius: 9px; background: rgba(255,179,107,.055); }
+    .simplification-card h3 { margin-bottom: 7px; color: var(--orange); font-size: .72rem; letter-spacing: .11em; text-transform: uppercase; }
+    .simplification-card ul { display: grid; gap: 4px; margin: 0; padding-left: 18px; color: var(--muted); font-size: .72rem; }
+    .source-groups { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+    .source-group { min-width: 0; }
+    .source-group-title { margin-bottom: 9px; color: var(--subtle); }
+    .source-list { display: grid; gap: 6px; }
+    .source-item { display: grid; grid-template-columns: 42px 1fr; gap: 9px; align-items: baseline; padding: 8px 9px; border: 1px solid transparent; border-radius: 6px; color: var(--muted); background: rgba(255,255,255,.025); font-size: .68rem; text-decoration: none; transition: border-color .2s ease, background .2s ease; }
+    .source-item:hover, .source-item:focus { border-color: rgba(97,231,223,.3); background: rgba(97,231,223,.06); }
+    .source-id { color: var(--cyan); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 850; }
+    .source-item em { color: var(--subtle); font-style: normal; }
+    .product-note { margin-top: 18px; padding: 11px 13px; border: 1px dashed rgba(129,169,255,.28); border-radius: 7px; color: var(--muted); font-size: .7rem; }
+    .product-note strong { color: var(--blue); }
+    footer { padding-top: 25px; color: var(--subtle); font-size: .68rem; text-align: center; }
+
+    @keyframes sceneIn { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes answerIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes riseIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    @keyframes slideRight { from { opacity: 0; transform: translateX(-10px); } to { opacity: 1; transform: translateX(0); } }
+    @keyframes vectorGrow { from { opacity: .1; transform: scaleX(.1); } to { opacity: 1; transform: scaleX(1); } }
+    @keyframes lineIn { from { opacity: 0; transform: scaleX(0); } to { opacity: 1; transform: scaleX(1); } }
+    @keyframes meterIn { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+    @keyframes pointPulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.25); } }
+    @keyframes ringPulse { 0%, 100% { opacity: .5; transform: translate(-50%, -50%) scale(.95); } 50% { opacity: 1; transform: translate(-50%, -50%) scale(1.05); } }
+    @keyframes arrowBlink { 0%, 100% { opacity: .55; transform: translateX(0); } 50% { opacity: 1; transform: translateX(4px); } }
+    @keyframes nodePop { from { transform: scale(.5); } to { transform: scale(1); } }
+    @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+    @keyframes blink { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
+
+    @media (max-width: 850px) {
+      .hero-grid, .scene-body, .reflection { grid-template-columns: 1fr; }
+      .hero-orbit { min-height: 190px; }
+      .scene-body { gap: 16px; }
+      .diagram-panel { min-height: auto; }
+      .sources-header, .simplifications { grid-template-columns: 1fr; display: grid; align-items: start; }
+      .source-rule { max-width: none; }
+    }
+
+    @media (max-width: 620px) {
+      .app { width: min(100% - 22px, 1180px); padding-top: 18px; }
+      h1 { font-size: 3.25rem; }
+      .control-bar { align-items: flex-start; flex-direction: column; top: 5px; }
+      .control-status { align-self: flex-end; }
+      .scene-top, .scene-heading, .scene-body, .scene-sources { padding-left: 16px; padding-right: 16px; }
+      .scene-heading h2 { font-size: 2.5rem; }
+      .compare-grid, .index-layout, .embedding-flow, .exact-search, .ann-layout, .boundary-flow, .hybrid-flow, .use-case-grid, .source-groups { grid-template-columns: 1fr; }
+      .flow-arrow-large, .flow-arrow { transform: rotate(90deg); }
+      .embedding-flow { gap: 4px; }
+      .flow-arrow { height: 25px; }
+      .boundary-flow { gap: 7px; }
+      .boundary-line { grid-column: auto; }
+      .hybrid-footer { grid-column: auto; }
+      .final-architecture { grid-template-columns: repeat(2, 1fr); }
+      .architecture-step:not(:last-child)::after { display: none; }
+      .anti-row { grid-template-columns: 24px 1fr; }
+      .anti-row .anti-symbol.good, .anti-row .anti-symbol.good + p { margin-top: 7px; }
+      .source-item { font-size: .65rem; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="hero">
+      <div class="eyebrow">FIELD GUIDE / 10 SCENES / WORKS OFFLINE</div>
+      <div class="hero-grid">
+        <div>
+          <h1>From <em>rows</em> to neighborhoods.</h1>
+          <p class="lede">A guided animation for the moment a familiar SQL or NoSQL question becomes a similarity question — and for the architecture that keeps the two from getting confused.</p>
+          <div class="hero-note"><span>Core idea</span> A vector database retrieves candidates near a learned representation. It does not become the source of truth.</div>
+        </div>
+        <div class="hero-orbit" aria-label="An abstract constellation of related points">
+          <i class="orbit-dot"></i><i class="orbit-dot"></i><i class="orbit-dot"></i><i class="orbit-dot"></i>
+          <div class="orbit-caption">Query space<strong>near is useful — not certain</strong></div>
+        </div>
+      </div>
+      <div class="progress-wrap" aria-label="Scene progress">
+        <div class="progress-meta"><span id="sceneNumber"><strong>SCENE 01</strong></span><span id="sceneLabel">The questions you already know</span><span id="progressPercent">10%</span></div>
+        <div class="progress-track"><div id="progressFill"></div></div>
+        <div class="scene-dots" id="sceneDots"></div>
+      </div>
+    </header>
+
+    <nav class="control-bar" aria-label="Animation controls">
+      <div class="control-group">
+        <button class="control-button" id="prevButton" type="button"><span class="symbol">←</span> Previous</button>
+        <button class="control-button primary" id="nextButton" type="button">Next <span class="symbol">→</span></button>
+        <button class="control-button" id="playButton" type="button"><span class="symbol">▶</span> Play</button>
+        <button class="control-button" id="pauseButton" type="button"><span class="symbol">Ⅱ</span> Pause</button>
+      </div>
+      <div class="control-status"><i class="status-light" id="statusLight"></i><span id="playStatus">Paused · use the arrows or play</span></div>
+    </nav>
+
+    <main id="sceneDeck">
+      <article class="scene active" data-title="The questions you already know">
+        <div class="scene-top"><div class="scene-kicker"><b>01</b> / ORIENT</div><div class="scene-type">Start with the question</div></div>
+        <div class="scene-heading">
+          <h2>Three data shapes. Three kinds of <span>certainty.</span></h2>
+          <p class="scene-intro">Before vectors, you already choose a data system based on the question: an exact key, a structured predicate, or a flexible document. The query’s contract comes first.</p>
+          <div class="concept-strip"><span class="concept">Key-value</span><span class="concept">Document</span><span class="concept">Relational</span><span class="concept">Exact answer</span></div>
+        </div>
+        <div class="scene-body">
+          <div class="diagram-panel">
+            <div class="diagram-title"><span>Familiar systems</span><span>the lookup decides the shape</span></div>
+            <div class="model-stack">
+              <div class="model-card"><div class="model-icon">KV</div><div><h3>Key-value store</h3><p>Fast access when the key is known.</p></div><code class="model-query">GET user:42</code></div>
+              <div class="model-card"><div class="model-icon">DOC</div><div><h3>Document store</h3><p>Flexible records organized around access patterns.</p></div><code class="model-query">_id = 42</code></div>
+              <div class="model-card"><div class="model-icon">SQL</div><div><h3>Relational database</h3><p>Predicates, joins, transactions, and aggregates.</p></div><code class="model-query">status = 'paid'</code></div>
+            </div>
+            <div class="question-bubble"><b>?</b><span>“Which stored item satisfies this exact condition?” has a deterministic shape.</span></div>
+          </div>
+          <div class="teaching-panel">
+            <div class="explain-card"><h3>Notice the contract</h3><p>These systems answer identity and structure questions: retrieve this key, match these fields, join these rows, or commit these changes. A result can be checked against the condition.</p></div>
+            <div class="takeaway-card"><h3>Turn the question</h3><p>Vector retrieval begins when the request becomes: <strong>“Which items are nearest to this query in a learned representation?”</strong></p></div>
+            <div class="checkpoint"><div class="checkpoint-head"><span class="checkpoint-label">Checkpoint</span><span class="checkpoint-count">01 / 10</span></div><div class="checkpoint-question">Which query is an exact lookup?</div><button class="reveal-button" type="button">Reveal answer</button><div class="answer" hidden><strong>GET user:42</strong> — it names one key. “Find something like this description” is a different retrieval contract.</div></div>
+          </div>
+        </div>
+        <div class="scene-sources">Evidence: <a href="#source-S5">S5</a><a href="#source-S6">S6</a><a href="#source-S10">S10</a><a href="#source-S12">S12</a></div>
+      </article>
+
+      <article class="scene" data-title="Exact predicates vs similarity">
+        <div class="scene-top"><div class="scene-kicker"><b>02</b> / CONTRAST</div><div class="scene-type">Exact ≠ nearby</div></div>
+        <div class="scene-heading">
+          <h2>A predicate draws a line. <span>Similarity</span> draws a slope.</h2>
+          <p class="scene-intro">Exact retrieval returns records that satisfy a condition. Similarity retrieval ranks candidates by distance under a chosen model and metric. One is a gate; the other is an ordered neighborhood.</p>
+          <div class="concept-strip"><span class="concept">Predicate</span><span class="concept">Ranked candidates</span><span class="concept">Metric matters</span><span class="concept">No automatic truth</span></div>
+        </div>
+        <div class="scene-body">
+          <div class="diagram-panel">
+            <div class="diagram-title"><span>Same catalog, two questions</span><span>watch the output change</span></div>
+            <div class="compare-grid">
+              <div class="compare-side exact"><h3>Exact predicate</h3><p>WHERE category = 'router'</p><div class="record-row match"><span>#18 router</span><span class="check">✓ match</span></div><div class="record-row"><span>#19 switch</span><span>—</span></div><div class="record-row match"><span>#21 router</span><span class="check">✓ match</span></div><div class="record-row"><span>#44 firewall</span><span>—</span></div></div>
+              <div class="compare-side similar"><h3>Similarity query</h3><p>“device for home Wi‑Fi”</p><div class="scatter"><div class="similarity-ring"></div><i class="point near" style="left:34%;top:39%"></i><span class="point-label" style="left:34%;top:39%">mesh kit</span><i class="point query" style="left:45%;top:48%"></i><span class="point-label" style="left:45%;top:48%">query</span><i class="point near" style="left:54%;top:33%;animation-delay:-.8s"></i><span class="point-label" style="left:54%;top:33%">router</span><i class="point" style="left:73%;top:68%;animation-delay:-1.5s"></i><i class="point" style="left:22%;top:73%;animation-delay:-2s"></i></div></div>
+            </div>
+          </div>
+          <div class="teaching-panel">
+            <div class="explain-card"><h3>The dangerous shortcut</h3><p>A high similarity score does not prove identity, authorization, freshness, uniqueness, or correctness. It only says “nearby” within the chosen representation.</p></div>
+            <div class="takeaway-card"><h3>Route hard constraints</h3><p>IDs, dates, numbers, joins, ACLs, transactions, and current state remain filters or source-of-truth reads. Similarity can help find candidates around them.</p></div>
+            <div class="checkpoint"><div class="checkpoint-head"><span class="checkpoint-label">Checkpoint</span><span class="checkpoint-count">02 / 10</span></div><div class="checkpoint-question">If a result is nearest, is it automatically the correct record?</div><button class="reveal-button" type="button">Reveal answer</button><div class="answer" hidden><strong>No.</strong> It is a candidate ranked by a model and metric. Hydrate it, apply hard constraints, and validate it where correctness matters.</div></div>
+          </div>
+        </div>
+        <div class="scene-sources">Evidence: <a href="#source-S1">S1</a><a href="#source-S9">S9</a><a href="#source-S12">S12</a><a href="#source-S19">S19</a></div>
+      </article>
+
+      <article class="scene" data-title="How an inverted index finds words">
+        <div class="scene-top"><div class="scene-kicker"><b>03</b> / LEXICAL SEARCH</div><div class="scene-type">Inverted index</div></div>
+        <div class="scene-heading">
+          <h2>Before vectors, search learned to <span>invert.</span></h2>
+          <p class="scene-intro">A full-text system turns terms into posting lists: each token points to the documents containing it. It is fast, inspectable, and excellent at literal words, identifiers, and phrases.</p>
+          <div class="concept-strip"><span class="concept">Terms → documents</span><span class="concept">Posting lists</span><span class="concept">BM25</span><span class="concept">Explainable hits</span></div>
+        </div>
+        <div class="scene-body">
+          <div class="diagram-panel" style="position:relative">
+            <div class="diagram-title"><span>Inside a lexical index</span><span>query tokens fan into postings</span></div>
+            <div class="index-layout">
+              <div class="token-query"><strong>Query</strong><code>“router reset”</code><div><span class="token">router</span><span class="token">reset</span></div></div>
+              <div class="postings"><div class="posting"><div class="term">router</div><div class="doc-pills"><span class="doc-pill hit">doc 01</span><span class="doc-pill hit">doc 03</span><span class="doc-pill">doc 08</span></div></div><div class="posting"><div class="term">reset</div><div class="doc-pills"><span class="doc-pill">doc 02</span><span class="doc-pill hit">doc 03</span><span class="doc-pill hit">doc 07</span></div></div><div class="posting"><div class="term">router + reset</div><div class="doc-pills"><span class="doc-pill hit">doc 03</span></div></div></div>
+            </div>
+            <div class="index-note">The index can explain a match: token, field, frequency, and document length all have a visible role in lexical scoring.</div>
+          </div>
+          <div class="teaching-panel">
+            <div class="explain-card"><h3>What it catches</h3><p>Rare product codes, quoted phrases, error messages, exact names, and identifiers can be more important than conceptual closeness. Dense embeddings may blur those details.</p></div>
+            <div class="takeaway-card"><h3>Keep the lexical signal</h3><p>Dense retrieval is not a replacement for every text task. A hybrid system can preserve this exact-word evidence while adding paraphrase recall.</p></div>
+            <div class="checkpoint"><div class="checkpoint-head"><span class="checkpoint-label">Checkpoint</span><span class="checkpoint-count">03 / 10</span></div><div class="checkpoint-question">Why might a literal error code need an inverted index?</div><button class="reveal-button" type="button">Reveal answer</button><div class="answer" hidden><strong>Because exact tokens matter.</strong> A semantic neighborhood can return conceptually related text while missing the precise code or phrase a user needs.</div></div>
+          </div>
+        </div>
+        <div class="scene-sources">Evidence: <a href="#source-S9">S9</a><a href="#source-S20">S20</a><a href="#source-F4">F4</a></div>
+      </article>
+
+      <article class="scene" data-title="Embeddings turn content into coordinates">
+        <div class="scene-top"><div class="scene-kicker"><b>04</b> / REPRESENTATION</div><div class="scene-type">Embedding model</div></div>
+        <div class="scene-heading">
+          <h2>Meaning-ish relationships become <span>coordinates.</span></h2>
+          <p class="scene-intro">An embedding model maps items and queries into a numerical space. Items that the model learned to relate may land near one another — but the space is model-, data-, and task-dependent.</p>
+          <div class="concept-strip"><span class="concept">Learned representation</span><span class="concept">Same vector space</span><span class="concept">Model-dependent</span><span class="concept">Not the database</span></div>
+        </div>
+        <div class="scene-body">
+          <div class="diagram-panel">
+            <div class="diagram-title"><span>Text → embedding</span><span>five visible dimensions, many hidden</span></div>
+            <div class="embedding-flow">
+              <div class="text-inputs"><div class="text-card"><b>ITEM A</b>“I forgot my login password”</div><div class="text-card"><b>ITEM B</b>“How do I reset access?”</div><div class="text-card"><b>QUERY</b>“Can’t sign in”</div></div>
+              <div class="flow-arrow">→</div>
+              <div class="vector-output"><div class="vector-card"><strong><span>ITEM A</span><span>near</span></strong><div class="vector-bar"><i style="flex:8"></i><i style="flex:3"></i><i style="flex:7"></i><i style="flex:5"></i><i style="flex:6"></i></div><code>[ .82, −.14, .61, .38, ... ]</code></div><div class="vector-card"><strong><span>ITEM B</span><span>near</span></strong><div class="vector-bar"><i style="flex:7"></i><i style="flex:4"></i><i style="flex:8"></i><i style="flex:4"></i><i style="flex:7"></i></div><code>[ .76, −.08, .67, .41, ... ]</code></div><div class="vector-card"><strong><span>QUERY</span><span>anchor</span></strong><div class="vector-bar"><i style="flex:8"></i><i style="flex:3"></i><i style="flex:7"></i><i style="flex:5"></i><i style="flex:6"></i></div><code>[ .80, −.12, .63, .40, ... ]</code></div></div>
+              <div class="vector-foot">The embedding model supplies the coordinates. The database stores, indexes, filters, and retrieves them.</div>
+            </div>
+          </div>
+          <div class="teaching-panel">
+            <div class="explain-card"><h3>Do not overread the picture</h3><p>This 2D-like drawing is a teaching shortcut. Real vectors often have hundreds or thousands of dimensions, and their useful relationships depend on training and evaluation.</p></div>
+            <div class="takeaway-card"><h3>Compatible space</h3><p>Queries and stored items must be encoded into a compatible space with a chosen similarity function. Changing the model can change the neighborhood.</p></div>
+            <div class="checkpoint"><div class="checkpoint-head"><span class="checkpoint-label">Checkpoint</span><span class="checkpoint-count">04 / 10</span></div><div class="checkpoint-question">What creates the “meaning-ish” coordinates?</div><button class="reveal-button" type="button">Reveal answer</button><div class="answer" hidden><strong>The embedding model.</strong> The vector database does not invent meaning independently; it indexes the representation it is given.</div></div>
+          </div>
+        </div>
+        <div class="scene-sources">Evidence: <a href="#source-F1">F1</a><a href="#source-F2">F2</a><a href="#source-F4">F4</a><a href="#source-S4">S4</a></div>
+      </article>
+
+      <article class="scene" data-title="Exact nearest-neighbor search">
+        <div class="scene-top"><div class="scene-kicker"><b>05</b> / BASELINE</div><div class="scene-type">Exact search</div></div>
+        <div class="scene-heading">
+          <h2>Exact nearest neighbor: <span>compare all.</span></h2>
+          <p class="scene-intro">Given a query vector, exact search evaluates every candidate under the chosen distance or similarity function, then returns the top-k. “Exact” refers to the search procedure — not to semantic truth.</p>
+          <div class="concept-strip"><span class="concept">Chosen metric</span><span class="concept">All candidates</span><span class="concept">Top-k ranking</span><span class="concept">Quality baseline</span></div>
+        </div>
+        <div class="scene-body">
+          <div class="diagram-panel">
+            <div class="diagram-title"><span>Query against a small corpus</span><span>every distance is measured</span></div>
+            <div class="exact-search"><div class="search-space"><i class="search-line" style="width:130px;left:48%;top:51%;transform:rotate(200deg)"></i><i class="search-line" style="width:105px;left:48%;top:51%;transform:rotate(155deg)"></i><i class="search-line" style="width:168px;left:48%;top:51%;transform:rotate(24deg)"></i><i class="search-line" style="width:225px;left:48%;top:51%;transform:rotate(-24deg)"></i><i class="search-line" style="width:260px;left:48%;top:51%;transform:rotate(70deg)"></i><i class="search-node query" style="left:46%;top:47%"></i><span class="search-label" style="left:46%;top:47%">query</span><i class="search-node neighbor" style="left:37%;top:32%"></i><span class="search-label" style="left:37%;top:32%">A</span><i class="search-node neighbor" style="left:52%;top:38%"></i><span class="search-label" style="left:52%;top:38%">B</span><i class="search-node" style="left:67%;top:55%"></i><span class="search-label" style="left:67%;top:55%">C</span><i class="search-node" style="left:23%;top:69%"></i><span class="search-label" style="left:23%;top:69%">D</span><i class="search-node" style="left:77%;top:28%"></i><span class="search-label" style="left:77%;top:28%">E</span></div><div><div class="exact-tag">Exact top 2</div><div class="distance-list"><div class="distance-row"><span>A</span><div class="distance-meter"><i style="--distance:34%"></i></div><b>.12</b></div><div class="distance-row"><span>B</span><div class="distance-meter"><i style="--distance:42%"></i></div><b>.19</b></div><div class="distance-row"><span>C</span><div class="distance-meter"><i style="--distance:66%"></i></div><b>.31</b></div><div class="distance-row"><span>D</span><div class="distance-meter"><i style="--distance:82%"></i></div><b>.47</b></div><div class="distance-row"><span>E</span><div class="distance-meter"><i style="--distance:94%"></i></div><b>.55</b></div></div></div></div>
+          </div>
+          <div class="teaching-panel">
+            <div class="explain-card"><h3>Why keep this baseline?</h3><p>For a small corpus, exact search may be simpler. More importantly, it tells you which neighbors were truly closest under your data, model, and metric so you can measure an ANN index against it.</p></div>
+            <div class="takeaway-card"><h3>Exact search ≠ exact lookup</h3><p>“Exact” here means no candidates were skipped. It does not mean the embedding perfectly captured the user’s intent, or that the nearest item is authorized or current.</p></div>
+            <div class="checkpoint"><div class="checkpoint-head"><span class="checkpoint-label">Checkpoint</span><span class="checkpoint-count">05 / 10</span></div><div class="checkpoint-question">What does exact nearest-neighbor search compare?</div><button class="reveal-button" type="button">Reveal answer</button><div class="answer" hidden><strong>Every candidate</strong> in the corpus, under the chosen metric. That makes it a useful quality baseline before approximating the search.</div></div>
+          </div>
+        </div>
+        <div class="scene-sources">Evidence: <a href="#source-A1">A1</a><a href="#source-A4">A4</a><a href="#source-S1">S1</a><a href="#source-S3">S3</a></div>
+      </article>
+
+      <article class="scene" data-title="ANN and the recall trade-off">
+        <div class="scene-top"><div class="scene-kicker"><b>06</b> / SCALE</div><div class="scene-type">Approximate search</div></div>
+        <div class="scene-heading">
+          <h2>ANN skips work. <span>You measure the trade.</span></h2>
+          <p class="scene-intro">Approximate nearest-neighbor indexes navigate a smaller part of the search space. More search effort can recover more true neighbors; less effort can reduce latency or resource use. There is no universal free lunch.</p>
+          <div class="concept-strip"><span class="concept">Recall@k</span><span class="concept">Latency</span><span class="concept">Memory</span><span class="concept">Build / update cost</span></div>
+        </div>
+        <div class="scene-body">
+          <div class="diagram-panel">
+            <div class="diagram-title"><span>Conceptual ANN graph</span><span>drag the search budget</span></div>
+            <div class="ann-layout"><div><div class="ann-graph" id="annGraph"><i class="ann-edge" style="width:116px;left:19%;top:29%;transform:rotate(23deg)"></i><i class="ann-edge" style="width:148px;left:32%;top:42%;transform:rotate(-18deg)"></i><i class="ann-edge" style="width:125px;left:44%;top:51%;transform:rotate(32deg)"></i><i class="ann-edge" style="width:147px;left:52%;top:35%;transform:rotate(67deg)"></i><i class="ann-edge" style="width:135px;left:64%;top:57%;transform:rotate(-33deg)"></i><i class="ann-edge" style="width:105px;left:21%;top:75%;transform:rotate(-44deg)"></i><i class="ann-node query" style="left:47%;top:47%"></i><i class="ann-node visited" style="left:22%;top:25%" data-step="1"></i><i class="ann-node visited" style="left:35%;top:39%" data-step="2"></i><i class="ann-node visited" style="left:48%;top:26%" data-step="3"></i><i class="ann-node visited" style="left:59%;top:48%" data-step="4"></i><i class="ann-node visited" style="left:71%;top:61%" data-step="5"></i><i class="ann-node" style="left:19%;top:75%" data-step="6"></i><i class="ann-node" style="left:78%;top:29%" data-step="7"></i><i class="ann-node" style="left:60%;top:80%" data-step="8"></i><i class="ann-node" style="left:83%;top:77%" data-step="9"></i><i class="ann-node" style="left:11%;top:46%" data-step="10"></i><i class="ann-node" style="left:31%;top:84%" data-step="11"></i></div><div class="ann-legend"><span class="legend-item"><i class="legend-dot query"></i>query</span><span class="legend-item"><i class="legend-dot visited"></i>explored</span><span class="legend-item"><i class="legend-dot"></i>skipped</span></div></div><div class="budget-card"><h3>Search budget</h3><p>Explore more nodes to approach the exact baseline.</p><div class="range-row"><span>fewer hops</span><output id="budgetValue">3 / 10</output></div><input id="budgetSlider" type="range" min="1" max="10" value="3" aria-label="Approximate search budget"><div class="ann-readout"><div class="readout"><span>work visited</span><strong id="visitedValue">3</strong></div><div class="readout"><span>illustrative recall</span><strong id="recallValue" class="good">~72%</strong></div></div></div></div>
+          </div>
+          <div class="teaching-panel">
+            <div class="explain-card"><h3>What ANN buys</h3><p>Indexes such as HNSW-style proximity graphs and compressed approaches are important techniques, but products expose different implementations and controls. Benchmark your workload.</p></div>
+            <div class="takeaway-card"><h3>Recall is a product requirement</h3><p>Choose a recall target and measure end-to-end latency, memory, build time, update behavior, filters, and freshness. “Approximate” is a deliberate operating point.</p></div>
+            <div class="checkpoint"><div class="checkpoint-head"><span class="checkpoint-label">Checkpoint</span><span class="checkpoint-count">06 / 10</span></div><div class="checkpoint-question">What happens when you lower the search budget?</div><button class="reveal-button" type="button">Reveal answer</button><div class="answer" hidden><strong>Fewer nodes are explored.</strong> That may lower work or latency, but the index can miss a true neighbor, reducing recall. The real curve needs measurement.</div></div>
+          </div>
+        </div>
+        <div class="scene-sources">Evidence: <a href="#source-A1">A1</a><a href="#source-A2">A2</a><a href="#source-A3">A3</a><a href="#source-A4">A4</a></div>
+      </article>
+
+      <article class="scene" data-title="The vector database boundary">
+        <div class="scene-top"><div class="scene-kicker"><b>07</b> / ARCHITECTURE</div><div class="scene-type">Derived index</div></div>
+        <div class="scene-heading">
+          <h2>A vector database is a <span>retrieval component.</span></h2>
+          <p class="scene-intro">It commonly stores vectors with IDs and metadata, maintains an index, supports updates and filters, and returns nearest candidates. The canonical record, policy decision, and current fact still live elsewhere when those guarantees matter.</p>
+          <div class="concept-strip"><span class="concept">IDs + metadata</span><span class="concept">Index operations</span><span class="concept">Candidate retrieval</span><span class="concept">Source boundary</span></div>
+        </div>
+        <div class="scene-body">
+          <div class="diagram-panel">
+            <div class="diagram-title"><span>Keep the boundary visible</span><span>derived projection → authoritative read</span></div>
+            <div class="boundary-flow"><div class="flow-column"><div class="flow-box canonical"><strong>SQL / document / event store</strong><small>canonical record · versions · deletes</small></div><div class="flow-box canonical"><strong>Policy layer</strong><small>identity · tenant · authorization</small></div></div><div class="flow-arrow-large">→</div><div class="flow-column"><div class="flow-box derived"><strong>Embedding pipeline</strong><small>model · dimension · chunk version</small></div><div class="flow-box derived"><strong>Vector index</strong><small>nearest candidates · metadata filters</small></div></div><div class="flow-arrow-large">→</div><div class="flow-column"><div class="flow-box policy"><strong>Hydrate + re-check</strong><small>current truth · final response</small></div><div class="responsibility-chips"><span>rank</span><span>filter</span><span>update</span><span>retrieve</span></div></div><div class="boundary-line">A vector record is a versioned projection, not the canonical fact.</div></div>
+          </div>
+          <div class="teaching-panel">
+            <div class="explain-card"><h3>Responsibilities it can own</h3><p>Vector storage, nearest-neighbor indexing, top-k retrieval, metadata filtering, IDs, and operational index lifecycle. Exact API, consistency, scaling, and guarantees vary by product.</p></div>
+            <div class="takeaway-card"><h3>Responsibilities it should not silently absorb</h3><p>Transactions, identity, authorization policy, current state, joins, aggregates, calibrated probabilities, and audit truth. Re-read those from the system designed to guarantee them.</p></div>
+            <div class="checkpoint"><div class="checkpoint-head"><span class="checkpoint-label">Checkpoint</span><span class="checkpoint-count">07 / 10</span></div><div class="checkpoint-question">Who decides whether this caller may see a candidate?</div><button class="reveal-button" type="button">Reveal answer</button><div class="answer" hidden><strong>The policy-aware source layer.</strong> Metadata prefilters can narrow candidates, but authorization must be bound to the request and re-checked against current policy before display or action.</div></div>
+          </div>
+        </div>
+        <div class="scene-sources">Evidence: <a href="#source-S5">S5</a><a href="#source-S8">S8</a><a href="#source-S10">S10</a><a href="#source-S11">S11</a><a href="#source-P1">P1</a></div>
+      </article>
+
+      <article class="scene" data-title="Hybrid retrieval">
+        <div class="scene-top"><div class="scene-kicker"><b>08</b> / COMBINE SIGNALS</div><div class="scene-type">Hybrid retrieval</div></div>
+        <div class="scene-heading">
+          <h2>Let each signal do its <span>best job.</span></h2>
+          <p class="scene-intro">A practical search path often combines structured filters, lexical retrieval, and dense retrieval. Over-retrieve, merge or rerank, then hydrate and validate against the source of truth.</p>
+          <div class="concept-strip"><span class="concept">Exact filters</span><span class="concept">Lexical recall</span><span class="concept">Dense recall</span><span class="concept">Rerank + validate</span></div>
+        </div>
+        <div class="scene-body">
+          <div class="diagram-panel">
+            <div class="diagram-title"><span>One request, multiple lenses</span><span>candidate generation is not the finish line</span></div>
+            <div class="hybrid-flow"><div class="hybrid-input"><div class="query-chip exact"><b>Hard filter</b>tenant = acme · status = live</div><div class="query-chip lexical"><b>Literal signal</b>“ERR-1042”</div><div class="query-chip dense"><b>Concept signal</b>“login fails after reset”</div></div><div class="flow-arrow-large">→</div><div class="hybrid-signals"><div class="signal-box lexical"><strong>Inverted index</strong><small>terms · phrases · identifiers</small></div><div class="signal-box dense"><strong>Vector index</strong><small>paraphrase · semantic neighborhood</small></div></div><div class="flow-arrow-large">→</div><div class="merge-box"><h3>Merge / rerank</h3><div class="result-row"><span>doc 03 · runbook</span><b>0.94</b></div><div class="result-row"><span>doc 08 · exact code</span><b>0.91</b></div><div class="result-row"><span>doc 11 · FAQ</span><b>0.84</b></div></div><div class="hybrid-footer">Hydrate current content · enforce ACL · cite provenance · then answer</div></div>
+          </div>
+          <div class="teaching-panel">
+            <div class="explain-card"><h3>Why not dense-only?</h3><p>Dense retrieval can find paraphrases and concepts, while lexical retrieval protects exact terms and phrases. Combining their candidate sets reduces blind spots.</p></div>
+            <div class="takeaway-card"><h3>Filter early, validate late</h3><p>Apply safe tenant and metadata constraints before retrieval where possible; over-retrieve when filters may remove good candidates; re-check authorization and freshness before returning.</p></div>
+            <div class="checkpoint"><div class="checkpoint-head"><span class="checkpoint-label">Checkpoint</span><span class="checkpoint-count">08 / 10</span></div><div class="checkpoint-question">What does hybrid retrieval protect against?</div><button class="reveal-button" type="button">Reveal answer</button><div class="answer" hidden><strong>Both kinds of miss:</strong> dense search may miss rare literal tokens, while lexical search may miss paraphrases. The merge still needs ranking and source validation.</div></div>
+          </div>
+        </div>
+        <div class="scene-sources">Evidence: <a href="#source-S9">S9</a><a href="#source-S20">S20</a><a href="#source-S21">S21</a><a href="#source-P5">P5</a></div>
+      </article>
+
+      <article class="scene" data-title="Strong use cases">
+        <div class="scene-top"><div class="scene-kicker"><b>09</b> / FIT</div><div class="scene-type">Strong use cases</div></div>
+        <div class="scene-heading">
+          <h2>Use vectors to find candidates. <span>Then decide.</span></h2>
+          <p class="scene-intro">The strongest patterns give similarity a focused retrieval role: semantic search, RAG passages, recommendations, multimodal search, code search, and deduplication candidate generation.</p>
+          <div class="concept-strip"><span class="concept">Semantic search</span><span class="concept">RAG</span><span class="concept">Recommendations</span><span class="concept">Multimodal / code</span></div>
+        </div>
+        <div class="scene-body">
+          <div class="diagram-panel">
+            <div class="diagram-title"><span>Useful patterns</span><span>retrieve first, apply the contract next</span></div>
+            <div class="use-case-grid"><div class="use-case"><span class="case-number">01 / KNOWLEDGE</span><h3>RAG</h3><p>Find passages that may help a generator answer with external context.</p><div class="case-flow"><div class="case-step">dense + lexical recall</div><div class="case-step">ACL + provenance</div><div class="case-step">citation / answer checks</div></div></div><div class="use-case"><span class="case-number">02 / DISCOVERY</span><h3>Recommendations</h3><p>Generate related-item candidates before ranking for eligibility, diversity, and freshness.</p><div class="case-flow"><div class="case-step">user / item vectors</div><div class="case-step">candidate retrieval</div><div class="case-step">rank + policy</div></div></div><div class="use-case"><span class="case-number">03 / MATCHING</span><h3>Deduplication</h3><p>Block paraphrased or visually similar pairs before a field-aware matcher or review.</p><div class="case-flow"><div class="case-step">normalize / exact hash</div><div class="case-step">vector blocking</div><div class="case-step">match + audit</div></div></div></div>
+            <div class="fit-banner">Also strong: cross-modal search and natural-language-to-code candidate retrieval — when the embedding space is evaluated for that task.</div>
+          </div>
+          <div class="teaching-panel">
+            <div class="explain-card"><h3>The common architecture</h3><p>Vector retrieval supplies recall or analogs. A reranker, model, policy, source read, review workflow, or generator handles the next decision.</p></div>
+            <div class="takeaway-card"><h3>Evaluate the whole path</h3><p>Measure recall@k, ranking quality, exactness, freshness, authorization, provenance, and the final task outcome — not only a distance score.</p></div>
+            <div class="checkpoint"><div class="checkpoint-head"><span class="checkpoint-label">Checkpoint</span><span class="checkpoint-count">09 / 10</span></div><div class="checkpoint-question">In recommendations, what comes after candidate retrieval?</div><button class="reveal-button" type="button">Reveal answer</button><div class="answer" hidden><strong>Ranking and policy.</strong> Eligibility, diversity, freshness, safety, and user/business constraints decide what is actually shown.</div></div>
+          </div>
+        </div>
+        <div class="scene-sources">Evidence: <a href="#source-S20">S20</a><a href="#source-S23">S23</a><a href="#source-S24">S24</a><a href="#source-S25">S25</a><a href="#source-S27">S27</a></div>
+      </article>
+
+      <article class="scene" data-title="Anti-patterns and the decision">
+        <div class="scene-top"><div class="scene-kicker"><b>10</b> / ARRIVE</div><div class="scene-type">Choose the component</div></div>
+        <div class="scene-heading">
+          <h2>The finish line is not “use vectors.” It is <span>use the right boundary.</span></h2>
+          <p class="scene-intro">Vector databases are powerful retrieval components. They become fragile when asked to be the system of record, a probability oracle, an authorization engine, or the answer to every text problem.</p>
+          <div class="concept-strip"><span class="concept">No vector-only everything</span><span class="concept">No score-as-truth</span><span class="concept">Version derived state</span><span class="concept">Benchmark first</span></div>
+        </div>
+        <div class="scene-body">
+          <div class="diagram-panel">
+            <div class="diagram-title"><span>Anti-pattern → better pattern</span><span>the architecture keeps its promises</span></div>
+            <div class="antipatterns"><div class="anti-row"><i class="anti-symbol">×</i><p><strong>Vector DB as system of record</strong>Derived entries can lag, duplicate, or outlive source rows.</p><i class="anti-symbol good">✓</i><p><strong>Canonical source + rebuildable index</strong>Version, delete, and audit the projection.</p></div><div class="anti-row"><i class="anti-symbol">×</i><p><strong>Embed every exact key and number</strong>Near matches can hide a missing or wrong record.</p><i class="anti-symbol good">✓</i><p><strong>Route exact clauses exactly</strong>Use KV, SQL, document, lexical, or graph retrieval where it fits.</p></div><div class="anti-row"><i class="anti-symbol">×</i><p><strong>Distance = probability / permission</strong>Similarity has no automatic calibration or policy semantics.</p><i class="anti-symbol good">✓</i><p><strong>Separate model and policy decisions</strong>Calibrate, threshold, authorize, and log independently.</p></div><div class="anti-row"><i class="anti-symbol">×</i><p><strong>Filter after a tiny top-k</strong>Good eligible items may never survive the cut.</p><i class="anti-symbol good">✓</i><p><strong>Prefilter, over-retrieve, re-check</strong>Measure recall and end-to-end correctness.</p></div></div>
+            <div class="final-architecture"><div class="architecture-step">source of truth</div><div class="architecture-step">embed + index</div><div class="architecture-step">hybrid candidates</div><div class="architecture-step">validate + act</div></div>
+            <div class="end-card">Use a vector database when the output contract is a ranked candidate list in a learned space — then design the second stage before shipping the index.</div>
+          </div>
+          <div class="teaching-panel">
+            <div class="explain-card"><h3>One managed product, after the concept</h3><p>Pinecone is one documented managed-product example that exposes vector indexing and retrieval options. Its product behavior is not a definition of every vector database.</p></div>
+            <div class="takeaway-card"><h3>The reusable decision</h3><p><strong>Source of truth + vector retrieval + deterministic or learned second stage.</strong> The vector result is a ranked candidate, never a proof that the item is correct, current, authorized, unique, safe, or anomalous.</p></div>
+            <div class="checkpoint"><div class="checkpoint-head"><span class="checkpoint-label">Final checkpoint</span><span class="checkpoint-count">10 / 10</span></div><div class="checkpoint-question">Complete the sentence: “A vector database is best when the output is…”</div><button class="reveal-button" type="button">Reveal answer</button><div class="answer" hidden><strong>…a ranked list of candidates near a query in a learned representation.</strong> Pick another system, or a hybrid, when the output is an exact record, current fact, aggregate, policy decision, or calibrated action.</div></div>
+          </div>
+        </div>
+        <div class="scene-sources">Evidence: <a href="#source-S1">S1</a><a href="#source-S5">S5</a><a href="#source-S8">S8</a><a href="#source-S9">S9</a><a href="#source-S19">S19</a><a href="#source-P1">P1</a></div>
+      </article>
+    </main>
+
+    <section class="lower-section reflection" aria-labelledby="decision-title">
+      <div><div class="eyebrow">THE TAKEAWAY</div><h2 id="decision-title">Similarity is a <span>signal</span>, not a guarantee.</h2><p>Once the question is explicit, the architecture is easier to draw: keep facts and permissions authoritative, use similarity to widen the candidate set, and make the final contract observable.</p></div>
+      <div class="decision-list"><div class="decision-item"><span>1</span><div><b>Name the output.</b> Candidate list, exact record, current fact, aggregate, probability, or action?</div></div><div class="decision-item"><span>2</span><div><b>Keep hard constraints hard.</b> IDs, dates, joins, uniqueness, transactions, ACLs, and freshness do not become semantic because a vector exists.</div></div><div class="decision-item"><span>3</span><div><b>Benchmark the path.</b> Compare exact and ANN retrieval, then test authorization, deletes, updates, empty results, and final task quality.</div></div></div>
+    </section>
+
+    <section class="sources-panel" id="sources" aria-labelledby="sources-title">
+      <div class="sources-header"><div><div class="eyebrow">EVIDENCE PANEL</div><h2 id="sources-title">Source IDs &amp; <span>boundaries.</span></h2><p>Each scene links to the source IDs used in the project documents. Links open the cited paper or official documentation; the animation itself has no network dependency.</p></div><div class="source-rule">General claims are labeled with general research sources. Product-specific claims stay labeled <strong>Pinecone</strong>.</div></div>
+      <div class="simplifications"><div class="simplification-card"><h3>Clearly labeled simplifications</h3><ul><li>Diagrams flatten high-dimensional vectors into a few bars or points.</li><li>The ANN budget slider is conceptual; real recall depends on corpus, model, index, filters, hardware, and query distribution.</li><li>“Vector database” is an operational description of storage + nearest-neighbor retrieval + surrounding operations, not a formal industry standard.</li><li>Arrows omit retries, lag, migrations, and other production plumbing so the responsibility boundary stays visible.</li></ul></div><div class="simplification-card"><h3>Reading rule</h3><ul><li>A source supports the scoped claim shown in its document.</li><li>Paper benchmarks are not portable promises.</li><li>A similarity score is not a calibrated probability.</li><li>RAG retrieval supplies evidence; it does not guarantee truth or citations.</li></ul></div></div>
+      <div class="source-groups">
+        <div class="source-group"><div class="source-group-title">Foundations · source-audit.md</div><div class="source-list"><a class="source-item" id="source-F1" href="https://arxiv.org/abs/1301.3781" target="_blank" rel="noreferrer"><span class="source-id">[F1]</span><span>Mikolov et al. · <em>Word Representations in Vector Space</em></span></a><a class="source-item" id="source-F2" href="https://aclanthology.org/D14-1162/" target="_blank" rel="noreferrer"><span class="source-id">[F2]</span><span>Pennington et al. · <em>GloVe</em></span></a><a class="source-item" id="source-F3" href="https://arxiv.org/abs/1706.03762" target="_blank" rel="noreferrer"><span class="source-id">[F3]</span><span>Vaswani et al. · <em>Attention Is All You Need</em></span></a><a class="source-item" id="source-F4" href="https://arxiv.org/abs/1908.10084" target="_blank" rel="noreferrer"><span class="source-id">[F4]</span><span>Reimers &amp; Gurevych · <em>Sentence-BERT</em></span></a></div></div>
+        <div class="source-group"><div class="source-group-title">ANN &amp; index · source-audit.md</div><div class="source-list"><a class="source-item" id="source-A1" href="https://doi.org/10.1145/276698.276876" target="_blank" rel="noreferrer"><span class="source-id">[A1]</span><span>Indyk &amp; Motwani · <em>Approximate Nearest Neighbors</em></span></a><a class="source-item" id="source-A2" href="https://doi.org/10.1109/TPAMI.2010.57" target="_blank" rel="noreferrer"><span class="source-id">[A2]</span><span>Jégou et al. · <em>Product Quantization</em></span></a><a class="source-item" id="source-A3" href="https://arxiv.org/abs/1603.09320" target="_blank" rel="noreferrer"><span class="source-id">[A3]</span><span>Malkov &amp; Yashunin · <em>HNSW</em></span></a><a class="source-item" id="source-A4" href="https://arxiv.org/abs/1702.08734" target="_blank" rel="noreferrer"><span class="source-id">[A4]</span><span>Johnson et al. · <em>Billion-scale Similarity Search with GPUs</em></span></a></div></div>
+        <div class="source-group"><div class="source-group-title">Retrieval · source-audit.md</div><div class="source-list"><a class="source-item" id="source-R1" href="https://arxiv.org/abs/2002.08909" target="_blank" rel="noreferrer"><span class="source-id">[R1]</span><span>Guu et al. · <em>REALM</em></span></a><a class="source-item" id="source-R2" href="https://aclanthology.org/2020.emnlp-main.550/" target="_blank" rel="noreferrer"><span class="source-id">[R2]</span><span>Karpukhin et al. · <em>Dense Passage Retrieval</em></span></a><a class="source-item" id="source-R3" href="https://arxiv.org/abs/2005.11401" target="_blank" rel="noreferrer"><span class="source-id">[R3]</span><span>Lewis et al. · <em>Retrieval-Augmented Generation</em></span></a><a class="source-item" id="source-R4" href="https://arxiv.org/abs/2312.10997" target="_blank" rel="noreferrer"><span class="source-id">[R4]</span><span>Gao et al. · <em>RAG Survey</em></span></a><a class="source-item" id="source-R5" href="https://arxiv.org/abs/2307.03172" target="_blank" rel="noreferrer"><span class="source-id">[R5]</span><span>Liu et al. · <em>Lost in the Middle</em></span></a></div></div>
+        <div class="source-group"><div class="source-group-title">Product examples · source-audit.md</div><div class="source-list"><a class="source-item" id="source-P1" href="https://docs.pinecone.io/guides/index-data/indexing-overview" target="_blank" rel="noreferrer"><span class="source-id">[P1]</span><span>Pinecone · <em>Index data overview</em></span></a><a class="source-item" id="source-P2" href="https://docs.pinecone.io/guides/index-data/create-an-index" target="_blank" rel="noreferrer"><span class="source-id">[P2]</span><span>Pinecone · <em>Create an index</em></span></a><a class="source-item" id="source-P3" href="https://docs.pinecone.io/guides/search/semantic-search" target="_blank" rel="noreferrer"><span class="source-id">[P3]</span><span>Pinecone · <em>Semantic search</em></span></a><a class="source-item" id="source-P4" href="https://docs.pinecone.io/guides/search/filter-by-metadata" target="_blank" rel="noreferrer"><span class="source-id">[P4]</span><span>Pinecone · <em>Metadata filters</em></span></a><a class="source-item" id="source-P5" href="https://docs.pinecone.io/guides/search/hybrid-search" target="_blank" rel="noreferrer"><span class="source-id">[P5]</span><span>Pinecone · <em>Hybrid search</em></span></a><a class="source-item" id="source-P6" href="https://docs.pinecone.io/guides/index-data/implement-multitenancy" target="_blank" rel="noreferrer"><span class="source-id">[P6]</span><span>Pinecone · <em>Multitenancy</em></span></a><a class="source-item" id="source-P7" href="https://docs.pinecone.io/guides/get-started/quickstart/ingest-files" target="_blank" rel="noreferrer"><span class="source-id">[P7]</span><span>Pinecone · <em>Ingest files</em></span></a><a class="source-item" id="source-P8" href="https://docs.pinecone.io/guides/operations/build-a-knowledge-agent" target="_blank" rel="noreferrer"><span class="source-id">[P8]</span><span>Pinecone · <em>Knowledge retrieval agent</em></span></a></div></div>
+        <div class="source-group"><div class="source-group-title">Decision framework · decision-framework.md</div><div class="source-list"><a class="source-item" id="source-S1" href="https://doi.org/10.1145/276698.276876" target="_blank" rel="noreferrer"><span class="source-id">[S1]</span><span>Indyk &amp; Motwani · <em>Approximate Nearest Neighbors</em></span></a><a class="source-item" id="source-S2" href="https://doi.org/10.1109/TPAMI.2010.57" target="_blank" rel="noreferrer"><span class="source-id">[S2]</span><span>Jégou et al. · <em>Product Quantization</em></span></a><a class="source-item" id="source-S3" href="https://arxiv.org/abs/1603.09320" target="_blank" rel="noreferrer"><span class="source-id">[S3]</span><span>Malkov &amp; Yashunin · <em>HNSW</em></span></a><a class="source-item" id="source-S4" href="https://arxiv.org/abs/1908.10084" target="_blank" rel="noreferrer"><span class="source-id">[S4]</span><span>Reimers &amp; Gurevych · <em>Sentence-BERT</em></span></a><a class="source-item" id="source-S5" href="https://www.postgresql.org/docs/current/tutorial-transactions.html" target="_blank" rel="noreferrer"><span class="source-id">[S5]</span><span>PostgreSQL · <em>Transactions</em></span></a><a class="source-item" id="source-S6" href="https://www.postgresql.org/docs/current/queries-table-expressions.html" target="_blank" rel="noreferrer"><span class="source-id">[S6]</span><span>PostgreSQL · <em>Joins and table expressions</em></span></a><a class="source-item" id="source-S7" href="https://www.postgresql.org/docs/current/functions-aggregate.html" target="_blank" rel="noreferrer"><span class="source-id">[S7]</span><span>PostgreSQL · <em>Aggregate functions</em></span></a><a class="source-item" id="source-S8" href="https://www.postgresql.org/docs/current/ddl-rowsecurity.html" target="_blank" rel="noreferrer"><span class="source-id">[S8]</span><span>PostgreSQL · <em>Row security policies</em></span></a><a class="source-item" id="source-S9" href="https://lucene.apache.org/core/10_1_0/core/org/apache/lucene/search/similarities/BM25Similarity.html" target="_blank" rel="noreferrer"><span class="source-id">[S9]</span><span>Apache Lucene · <em>BM25Similarity</em></span></a><a class="source-item" id="source-S10" href="https://www.mongodb.com/docs/manual/data-modeling/" target="_blank" rel="noreferrer"><span class="source-id">[S10]</span><span>MongoDB · <em>Data modeling</em></span></a><a class="source-item" id="source-S11" href="https://www.mongodb.com/docs/manual/core/transactions/" target="_blank" rel="noreferrer"><span class="source-id">[S11]</span><span>MongoDB · <em>Transactions</em></span></a><a class="source-item" id="source-S12" href="https://redis.io/docs/latest/develop/data-types/" target="_blank" rel="noreferrer"><span class="source-id">[S12]</span><span>Redis · <em>Data types</em></span></a><a class="source-item" id="source-S13" href="https://neo4j.com/docs/cypher-manual/current/patterns/" target="_blank" rel="noreferrer"><span class="source-id">[S13]</span><span>Neo4j · <em>Graph patterns</em></span></a><a class="source-item" id="source-S14" href="https://duckdb.org/why_duckdb" target="_blank" rel="noreferrer"><span class="source-id">[S14]</span><span>DuckDB · <em>Why DuckDB</em></span></a><a class="source-item" id="source-S15" href="https://docs.timescale.com/" target="_blank" rel="noreferrer"><span class="source-id">[S15]</span><span>Tiger Data · <em>TimescaleDB documentation</em></span></a><a class="source-item" id="source-S16" href="https://docs.feast.dev/getting-started/concepts/feature-retrieval.md" target="_blank" rel="noreferrer"><span class="source-id">[S16]</span><span>Feast · <em>Feature retrieval</em></span></a><a class="source-item" id="source-S17" href="https://docs.feast.dev/getting-started/components/online-store.md" target="_blank" rel="noreferrer"><span class="source-id">[S17]</span><span>Feast · <em>Online store</em></span></a><a class="source-item" id="source-S18" href="https://mlflow.org/docs/latest/ml/deployment/" target="_blank" rel="noreferrer"><span class="source-id">[S18]</span><span>MLflow · <em>Model serving</em></span></a><a class="source-item" id="source-S19" href="https://arxiv.org/abs/1706.04599" target="_blank" rel="noreferrer"><span class="source-id">[S19]</span><span>Guo et al. · <em>Calibration of neural networks</em></span></a><a class="source-item" id="source-S20" href="https://arxiv.org/abs/2005.11401" target="_blank" rel="noreferrer"><span class="source-id">[S20]</span><span>Lewis et al. · <em>Retrieval-Augmented Generation</em></span></a><a class="source-item" id="source-S21" href="https://arxiv.org/abs/2312.10997" target="_blank" rel="noreferrer"><span class="source-id">[S21]</span><span>Gao et al. · <em>RAG for LLMs survey</em></span></a><a class="source-item" id="source-S22" href="https://arxiv.org/abs/2307.03172" target="_blank" rel="noreferrer"><span class="source-id">[S22]</span><span>Liu et al. · <em>Lost in the Middle</em></span></a><a class="source-item" id="source-S23" href="https://arxiv.org/abs/2103.00020" target="_blank" rel="noreferrer"><span class="source-id">[S23]</span><span>Radford et al. · <em>CLIP</em></span></a><a class="source-item" id="source-S24" href="https://arxiv.org/abs/1909.09436" target="_blank" rel="noreferrer"><span class="source-id">[S24]</span><span>Husain et al. · <em>CodeSearchNet</em></span></a><a class="source-item" id="source-S25" href="https://research.google/pubs/deep-neural-networks-for-youtube-recommendations/" target="_blank" rel="noreferrer"><span class="source-id">[S25]</span><span>Covington et al. · <em>YouTube recommendations</em></span></a><a class="source-item" id="source-S26" href="https://arxiv.org/abs/2304.03442" target="_blank" rel="noreferrer"><span class="source-id">[S26]</span><span>Park et al. · <em>Generative Agents</em></span></a><a class="source-item" id="source-S27" href="https://arxiv.org/abs/2004.00584" target="_blank" rel="noreferrer"><span class="source-id">[S27]</span><span>Li et al. · <em>Deep Entity Matching</em></span></a><a class="source-item" id="source-S28" href="https://scikit-learn.org/stable/modules/outlier_detection.html" target="_blank" rel="noreferrer"><span class="source-id">[S28]</span><span>scikit-learn · <em>Novelty and outlier detection</em></span></a></div></div>
+      </div>
+      <div class="product-note"><strong>Product boundary:</strong> Pinecone appears only as one managed-product example, after the general architecture. Product documentation is scoped to the capabilities it documents, not a universal claim about vector databases.</div>
+    </section>
+
+    <footer>Built as a single offline HTML file · source IDs point back to the project audit and decision framework · research date noted in the docs: 2026-10-18</footer>
+  </div>
+
+  <script>
+    (() => {
+      const scenes = [...document.querySelectorAll('.scene')];
+      const dots = document.getElementById('sceneDots');
+      const prevButton = document.getElementById('prevButton');
+      const nextButton = document.getElementById('nextButton');
+      const playButton = document.getElementById('playButton');
+      const pauseButton = document.getElementById('pauseButton');
+      const playStatus = document.getElementById('playStatus');
+      const statusLight = document.getElementById('statusLight');
+      const sceneNumber = document.getElementById('sceneNumber');
+      const sceneLabel = document.getElementById('sceneLabel');
+      const progressPercent = document.getElementById('progressPercent');
+      const progressFill = document.getElementById('progressFill');
+      const autoplayMs = 11000;
+      let current = 0;
+      let timer = null;
+
+      scenes.forEach((scene, index) => {
+        const dot = document.createElement('button');
+        dot.className = 'scene-dot' + (index === 0 ? ' current' : '');
+        dot.type = 'button';
+        dot.setAttribute('aria-label', `Go to scene ${index + 1}: ${scene.dataset.title}`);
+        dot.addEventListener('click', () => showScene(index));
+        dots.appendChild(dot);
+      });
+
+      function showScene(index) {
+        current = Math.max(0, Math.min(scenes.length - 1, index));
+        scenes.forEach((scene, sceneIndex) => scene.classList.toggle('active', sceneIndex === current));
+        const sceneDots = [...dots.children];
+        sceneDots.forEach((dot, dotIndex) => {
+          dot.classList.toggle('current', dotIndex === current);
+          dot.classList.toggle('visited', dotIndex < current);
+        });
+        const percent = Math.round(((current + 1) / scenes.length) * 100);
+        sceneNumber.innerHTML = `<strong>SCENE ${String(current + 1).padStart(2, '0')}</strong>`;
+        sceneLabel.textContent = scenes[current].dataset.title;
+        progressPercent.textContent = `${percent}%`;
+        progressFill.style.width = `${percent}%`;
+        prevButton.disabled = current === 0;
+        nextButton.disabled = current === scenes.length - 1;
+        scenes[current].querySelector('.scene-heading')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      function next() {
+        if (current < scenes.length - 1) showScene(current + 1);
+        else stopPlaying();
+      }
+
+      function startPlaying() {
+        if (timer) return;
+        timer = window.setInterval(next, autoplayMs);
+        statusLight.classList.add('live');
+        playStatus.textContent = 'Playing · advances every 11 seconds';
+      }
+
+      function stopPlaying() {
+        if (timer) window.clearInterval(timer);
+        timer = null;
+        statusLight.classList.remove('live');
+        playStatus.textContent = 'Paused · use the arrows or play';
+      }
+
+      prevButton.addEventListener('click', () => { stopPlaying(); showScene(current - 1); });
+      nextButton.addEventListener('click', () => { stopPlaying(); next(); });
+      playButton.addEventListener('click', startPlaying);
+      pauseButton.addEventListener('click', stopPlaying);
+
+      document.addEventListener('keydown', (event) => {
+        if (event.target.matches('input, button, a')) return;
+        if (event.key === 'ArrowRight') { stopPlaying(); next(); }
+        if (event.key === 'ArrowLeft') { stopPlaying(); showScene(current - 1); }
+        if (event.key.toLowerCase() === 'p') timer ? stopPlaying() : startPlaying();
+      });
+
+      document.querySelectorAll('.reveal-button').forEach((button) => {
+        button.addEventListener('click', () => {
+          const answer = button.nextElementSibling;
+          const isHidden = answer.hasAttribute('hidden');
+          answer.toggleAttribute('hidden', !isHidden);
+          button.textContent = isHidden ? 'Hide answer' : 'Reveal answer';
+        });
+      });
+
+      const budgetSlider = document.getElementById('budgetSlider');
+      const budgetValue = document.getElementById('budgetValue');
+      const visitedValue = document.getElementById('visitedValue');
+      const recallValue = document.getElementById('recallValue');
+      const annNodes = [...document.querySelectorAll('.ann-node[data-step]')];
+      function updateBudget() {
+        const value = Number(budgetSlider.value);
+        const recall = Math.round(57 + (value * 7.2));
+        budgetValue.textContent = `${value} / 10`;
+        visitedValue.textContent = value;
+        recallValue.textContent = `~${Math.min(99, recall)}%`;
+        annNodes.forEach((node) => {
+          const visited = Number(node.dataset.step) <= value;
+          node.classList.toggle('visited', visited);
+          node.classList.toggle('faint', !visited);
+        });
+      }
+      budgetSlider.addEventListener('input', updateBudget);
+      updateBudget();
+      showScene(0);
+    })();
+  </script>
+</body>
+</html>
